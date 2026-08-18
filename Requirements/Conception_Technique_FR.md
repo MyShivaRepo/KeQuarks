@@ -17,8 +17,17 @@
 - **Second mode d'exécution full Python** (venv, sans Docker) pour les postes où Docker
   n'est pas disponible — même approche que SWOWL.
 - **No build, no framework** côté front (HTML/CSS/JS vanilla).
-- **Rôles dérivés** : aucun rôle n'est stocké, tout est recalculé côté serveur à partir
-  des arêtes (cf. besoin, règle fondatrice).
+- **Tout est node.** Une relation et ses rôles sont eux-mêmes des nodes — le modèle est
+  **entièrement réifié**.
+- **Deux couches (principe central) :**
+  - **Base (matérialisée, réifiée)** : le graphe complet, relations et rôles inclus, tel
+    que le montre le diagramme de cas d'usage.
+  - **IHM (simple, directe)** : l'API **replie** la réification pour présenter à
+    l'utilisateur des relations directes `A —relation→ B`. Les hubs de relation et les
+    nodes de rôle **ne sont jamais montrés** dans l'IHM.
+- **Rôles dérivés** : aucun node « concept » ne porte de rôle en propre ; son rôle
+  (`type`, `instance`, …) est **calculé** en regardant de quels rôles de relations il est
+  le *filler*.
 
 ## 2. Stack technique
 
@@ -69,36 +78,95 @@ uvicorn main:app --host 127.0.0.1 --port 54321
 - En natif, l'app lit/écrit le **vrai système de fichiers** ; config et registre sous
   `~/.kequarks/` (surchargeable via la variable d'environnement `KEQUARKS_DIR`).
 
-## 4. Modèle de données
+## 4. Modèle de données (réification matérialisée)
 
-### 4.1 Primitives
+### 4.1 Node — la seule primitive
 
-- **Node** = `id` (UUID) + `label` monolangue. Rien d'autre.
-- **Edge** (arête typée) = `id` (UUID) + `type` (catalogue fixe) + `source` (id) +
-  `target` (id). Une arête est **elle-même un node** conceptuellement, mais au MVP
-  elle est stockée comme un enregistrement distinct pour rester simple.
+- **Node** = `id` (UUID) + `label` monolangue. **Rien d'autre.**
+- Tout est un node : les concepts et individus (`Personne`, `Bernard Chabot`), les
+  attributs (`Nom`, `Chabot`), **mais aussi** les relations et les rôles.
+- Le `label` est le **nom lisible** d'un node ; il ne porte **jamais** de sémantique de
+  typage. Tous les liens entre nodes se font **par `id`** — jamais par chaîne de
+  caractères. *(« c'est l'identifiant qui compte ».)*
 
-### 4.2 Catalogue fixe des types d'arêtes (côté serveur)
+### 4.2 Catalogue fondateur (niveau 0 / bootstrap)
 
-```python
-EDGE_TYPES = {
-    "est-une":             {"source": "instance", "target": "type"},
-    "est-caractérisé-par": {"source": "concept",  "target": "attribut"},
-    "est-représenté-par":  {"source": "sujet",    "target": "objet"},
+Nodes amorcés à la création de chaque base, `builtin: true` (non supprimables) :
+
+| Nodes « type de relation » | Nodes « rôle » (source, cible) |
+|---|---|
+| `instanciation` | `Instance`, `type` |
+| `caractérisation` | `chose caractérisée`, `caractériseur` |
+| `représentation` | `sujet`, `objet` |
+
+> Terminologie retenue = celle du diagramme de cas d'usage. `représentation` est définie
+> mais **non exercée** (pas de cas d'usage à ce stade). Types de relation **définis par
+> l'utilisateur** = backlog.
+
+### 4.3 Relation — un node adressable + un pointeur de type + des rôles
+
+Une relation est un **node** (donc `id` + `label`), enrichi de :
+
+- `relationType` : **référence par `id`** vers un node « type de relation » du catalogue
+  (ex. `instanciation`).
+- `roles` : dictionnaire `{ <id du node rôle> : <id du filler> }`. Un `filler` peut viser
+  **un node quelconque OU une autre relation** (par son `id`) — c'est ce qui rend possibles
+  la **méta-modélisation** et la **caractérisation @instance dérivée** (section 4.5).
+
+Exemple — `Bernard Chabot est-une Personne`, tel que **stocké en base** :
+
+```json
+{
+  "nodes": [
+    { "id": "n_bernard",       "label": "Bernard Chabot" },
+    { "id": "n_personne",      "label": "Personne" },
+    { "id": "n_instanciation", "label": "instanciation",  "builtin": true },
+    { "id": "n_role_instance", "label": "Instance",       "builtin": true },
+    { "id": "n_role_type",     "label": "type",           "builtin": true },
+    { "id": "r1",              "label": "instanciation #1" }
+  ],
+  "relations": [
+    {
+      "relation":     "r1",
+      "relationType": "n_instanciation",
+      "roles": {
+        "n_role_instance": "n_bernard",
+        "n_role_type":     "n_personne"
+      }
+    }
+  ]
 }
 ```
 
-> Types d'arêtes **définis par l'utilisateur** = backlog (hors MVP).
+### 4.4 `relationType` : pointeur primitif (option 1), migrable vers l'option 2
 
-### 4.3 Rôles dérivés (jamais stockés)
+Le lien `relationType` (r1 → `n_instanciation`) est, au MVP, un **pointeur structurel
+primitif** — le « plancher » du bootstrap (niveau 0), simple et pragmatique.
+
+**Réversibilité garantie vers l'option 2** (récursive) : si un jour on veut que ce lien
+soit *lui-même* une relation `instanciation` (r1 *instance de* `n_instanciation`), la
+migration est **mécanique** — pour chaque relation, on remplace le champ `relationType`
+par une nouvelle relation dont le rôle `Instance` vise `r1` et le rôle `type` vise le node
+type. Aucune donnée n'est perdue (les relations sont déjà des nodes adressables). Le modèle
+est donc conçu pour supporter ce passage sans rupture.
+
+### 4.5 Caractérisation @instance dérivée — **créée à la main** au MVP
+
+Le mécanisme du diagramme (la contrainte de schéma `Personne —caractérisation→ Nom` est
+instanciée pour produire l'assertion `Bernard —caractérisation→ Chabot`) est, au MVP,
+**construit manuellement** par l'utilisateur : il crée la relation d'instanciation dont un
+`filler` vise la relation de caractérisation de schéma. **Aucune génération automatique**
+(ce serait un moteur d'inférence, comme le moteur séparé de SWOWL) → **backlog**.
+
+### 4.6 Rôles dérivés (jamais stockés)
 
 Le backend calcule les rôles à la lecture :
 
-- Pour chaque arête `e` de type `t` : `source(e)` reçoit le rôle `EDGE_TYPES[t].source`,
-  `target(e)` reçoit le rôle `EDGE_TYPES[t].target`.
-- Un même node peut cumuler plusieurs rôles.
-- Supprimer la dernière arête conférant un rôle ⇒ le node **disparaît** de la liste de
-  ce rôle et **redevient nu**.
+- Un node `x` a le rôle `R` s'il est le `filler` d'un rôle `R` d'au moins une relation.
+- Ex. « les `type` » = tous les nodes fillers d'un rôle `type` d'une relation
+  `instanciation`. Un même node peut cumuler plusieurs rôles.
+- Supprimer la dernière relation conférant un rôle ⇒ le node **disparaît** de la liste de
+  ce rôle et **redevient nu**. Conforme au modèle « rôles dérivés ».
 
 ## 5. Persistance — registre multi-bases (comme SWOWL)
 
@@ -106,38 +174,44 @@ Le backend calcule les rôles à la lecture :
 ~/.kequarks/
   registry.json          → [ { id, name, file, created, updated } ]
   bases/
-    <base-id>.json        → { "nodes": [ {id,label} ], "edges": [ {id,type,source,target} ] }
+    <base-id>.json        → { "nodes": [ {id,label,builtin?} ],
+                              "relations": [ {relation, relationType, roles{…}} ] }
 ```
 
 - Une **base de connaissances** = un fichier JSON dans `bases/`, référencé dans
-  `registry.json`.
+  `registry.json`. Chaque base est amorcée avec le **catalogue fondateur** (section 4.2).
 - Le registre est rechargé au démarrage ; les fichiers restent sur l'hôte
   (hors conteneur), montés via volume en mode Docker.
 
 ## 6. API REST
 
+L'API **matérialise** la réification en écriture, mais **replie** le graphe en lecture
+pour l'IHM (relations directes, réification masquée).
+
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/api/health` | santé du service |
-| `GET` | `/api/edge-types` | catalogue fixe des types d'arêtes |
+| `GET` | `/api/relation-types` | catalogue fondateur (types de relation + rôles) |
 | `GET` `POST` | `/api/bases` | lister / créer une base |
 | `PATCH` `DELETE` | `/api/bases/{id}` | renommer / supprimer une base |
-| `GET` `POST` | `/api/bases/{id}/nodes` | lister / créer un node |
+| `GET` `POST` | `/api/bases/{id}/nodes` | lister / créer un node (concept/individu/attribut) |
 | `PATCH` `DELETE` | `/api/bases/{id}/nodes/{nodeId}` | renommer / supprimer un node |
-| `GET` `POST` | `/api/bases/{id}/edges` | lister / créer une arête |
-| `DELETE` | `/api/bases/{id}/edges/{edgeId}` | supprimer une arête |
-| `GET` | `/api/bases/{id}/roles` | **rôles dérivés** : `{ type:[…], instance:[…], concept:[…], attribut:[…], sujet:[…], objet:[…] }` |
-| `GET` | `/api/bases/{id}/graph` | graphe complet (nodes + edges) pour la vue Cytoscape |
+| `GET` `POST` | `/api/bases/{id}/relations` | lister / créer une relation (fillers = ids de nodes **ou** de relations) |
+| `DELETE` | `/api/bases/{id}/relations/{relId}` | supprimer une relation |
+| `GET` | `/api/bases/{id}/roles` | **rôles dérivés** : `{ type:[…], instance:[…], "chose caractérisée":[…], caractériseur:[…], sujet:[…], objet:[…] }` |
+| `GET` | `/api/bases/{id}/graph` | graphe **replié** : `{ nodes:[…], edges:[ {source, relationType, target} ] }` (hubs et rôles reconstruits, non exposés) |
 
-## 7. Frontend — deux onglets
+## 7. Frontend — deux onglets (vue repliée)
 
-- **Onglet « Vue textuelle »** (arbre / listes, tri **alphabétique**) :
-  - entrée globale **Tous les nodes** ;
-  - **une entrée par rôle** (`type`, `instance`, `concept`, `attribut`, `sujet`,
-    `objet`), alimentée par `/api/bases/{id}/roles`. Un même node peut apparaître
+- **Onglet « Vue textuelle »** (listes, tri **alphabétique**) :
+  - entrée globale **Tous les nodes** (concepts/individus/attributs — les nodes
+    fondateurs et relations restent masqués) ;
+  - **une entrée par rôle** (`type`, `instance`, `chose caractérisée`, `caractériseur`,
+    `sujet`, `objet`), alimentée par `/api/bases/{id}/roles`. Un même node peut apparaître
     sous plusieurs rôles.
-- **Onglet « Vue graphique »** : rendu **Cytoscape.js** des nodes connectés par leurs
-  arêtes, à partir de `/api/bases/{id}/graph`.
+- **Onglet « Vue graphique »** : **Cytoscape.js**, rendu **replié** — nodes reliés par des
+  arêtes directes `A —relation→ B` (issues de `/api/bases/{id}/graph`). Ni hubs verts ni
+  rôles jaunes à l'écran.
 - **Sélecteur de base** en en-tête (base courante), aligné sur le registre SWOWL.
 - **Recherche** globale sur les labels de nodes.
 
@@ -146,8 +220,8 @@ Le backend calcule les rôles à la lecture :
 ```
 backend/
   main.py             API FastAPI + montage StaticFiles (mode natif)
-  models.py           modèles Pydantic (Node, Edge, Base)
-  store.py            registre + lecture/écriture JSON + calcul des rôles dérivés
+  models.py           modèles Pydantic (Node, Relation, Base)
+  store.py            registre + I/O JSON + réification/repli + calcul des rôles dérivés
   requirements.txt
   Dockerfile
 frontend/
@@ -161,8 +235,10 @@ ReadMe.md / LisezMoi.md   (Option A Docker / Option B natif)
 
 ## 9. Hors périmètre (backlog) — rappel
 
-- Types d'arêtes définis par l'utilisateur.
-- Entrée « arêtes » dans la vue textuelle (nodes uniquement au MVP).
+- Types de relation définis par l'utilisateur.
+- `relationType` récursif (option 2) — modèle déjà prévu pour la migration (section 4.4).
+- Génération **automatique** de la caractérisation @instance (moteur d'inférence).
+- Entrée « relations » dans la vue textuelle (nodes uniquement au MVP).
 - Nommage multilingue → projet `Th3Sr1b3Pr0j3ct`.
 - Export OWL via `SWOWL`.
 - Résolution théorique du BOOTSTRAP.
