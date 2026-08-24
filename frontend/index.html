@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeQuarks</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="https://github.com/MyShivaRepo/KeQuarks" target="_blank" rel="noopener"
+       title="Ouvrir le dépôt GitHub KeQuarks">🧩 KeQuarks</a>
+    <div class="base-picker">
+      <label for="baseSelect">Base :</label>
+      <select id="baseSelect"></select>
+      <button id="newBaseBtn" title="Nouvelle base">＋</button>
+      <button id="renameBaseBtn" title="Renommer la base">✎</button>
+      <button id="deleteBaseBtn" title="Supprimer la base">🗑</button>
+    </div>
+    <div class="search">
+      <input id="searchInput" type="search" placeholder="Rechercher un node…">
+    </div>
+  </header>
+
+  <section class="editor">
+    <div class="row">
+      <button id="newNodeBtn" class="primary">＋ Node</button>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="text">Vue textuelle</button>
+    <button class="tab" data-tab="centered">Vue textuelle centrée</button>
+    <button class="tab" data-tab="cgraph">Vue graphique centrée</button>
+    <button class="tab" data-tab="graph">Vue graphique</button>
+    <button class="tab" data-tab="rules">Règles</button>
+  </nav>
+
+  <main>
+    <div id="tab-text" class="tabpane active">
+      <div id="textView"></div>
+    </div>
+    <div id="tab-centered" class="tabpane">
+      <div id="centeredView"></div>
+    </div>
+    <div id="tab-cgraph" class="tabpane">
+      <p class="hint" id="cgraphHint"></p>
+      <div id="cyCentered"></div>
+    </div>
+    <div id="tab-rules" class="tabpane">
+      <div id="rulesView"></div>
+    </div>
+    <div id="tab-graph" class="tabpane">
+      <div class="graph-toolbar">
+        <span class="spacer"></span>
+        <label for="graphLayout">Layout :</label>
+        <select id="graphLayout">
+          <option value="cose">Force dirigée</option>
+          <option value="breadthfirst">Hiérarchique</option>
+          <option value="concentric">Concentrique</option>
+          <option value="circle">Cercle</option>
+          <option value="grid">Grille</option>
+        </select>
+        <button id="graphRelayout" title="Réagencer">Réagencer</button>
+      </div>
+      <div id="cy"></div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/vendor/cytoscape.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
