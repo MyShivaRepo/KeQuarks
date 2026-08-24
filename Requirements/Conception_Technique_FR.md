@@ -242,3 +242,74 @@ ReadMe.md / LisezMoi.md   (Option A Docker / Option B natif)
 - Nommage multilingue → projet `Th3Sr1b3Pr0j3ct`.
 - Export OWL via `SWOWL`.
 - Résolution théorique du BOOTSTRAP.
+
+## 10. Évolutions depuis le 1er jet (décisions actées)
+
+Décisions prises pendant l'implémentation du MVP, faisant autorité sur les sections
+antérieures là où elles diffèrent.
+
+### 10.1 Catalogue des relations (aligné sur le méta-modèle)
+
+Le catalogue **fondateur** compte désormais **6 types de relation** et **8 rôles** :
+
+| Relation | rôle source | rôle cible | niveau |
+|---|---|---|---|
+| `subsomption` | généraliseur | spécialiseur | — |
+| `instanciation` | **individu** | type | — |
+| `type de caractérisation` | chose caractérisée | caractériseur | schéma |
+| `caractérisation` | chose caractérisée | caractériseur | instance |
+| `type de représentation` | sujet | objet | schéma |
+| `représentation` | sujet | objet | instance |
+
+- Le rôle d'instanciation est **`individu`** (et non « Instance »).
+- **Caractérisation** et **représentation** existent chacune à **deux niveaux** (schéma /
+  instance) comme deux types de relation directs — cela **remplace** l'approche « caractérisation
+  @instance dérivée automatiquement » (§4.5), reportée en backlog (moteur d'inférence).
+- **`subsomption`** (généraliseur → spécialiseur) relie les types entre eux.
+- Ordre d'affichage dans la modale : subsomption, instanciation, puis les paires type/instance.
+
+### 10.2 Labels non uniques (homonymes assumés)
+
+Un label n'est **pas unique** : deux nodes distincts peuvent le partager (ex. *Orange* le
+fruit vs l'opérateur). L'IHM les **désambiguïse** uniquement en cas de collision, par leur
+type (via instanciation) ou, à défaut, un court identifiant — rendu **stylé à part** (petit
+badge grisé) pour montrer que le label reste identique.
+
+### 10.3 IHM — réification invisible, rendu homogène
+
+- Les **méta-relations** (relation dont une extrémité est une relation) ne sont **pas dessinées**
+  dans la Vue graphique : toutes les relations y sont des arêtes directes homogènes `A —type→ B`.
+- Les rôles dérivés (Vue textuelle) ne listent que des **nodes utilisateur**, jamais les
+  relations-fillers d'une méta-relation.
+- Sens de la flèche **`instanciation` : type → instance**.
+
+### 10.4 Vues (5 onglets)
+
+Vue textuelle · Vue textuelle centrée · Vue graphique centrée · Vue graphique · **Règles**.
+Onglets **réordonnables à la souris** (ordre persistant). Vue textuelle : sections
+**réordonnables et pliables**.
+
+- **Vue graphique centrée** : placement **directionnel** par type — instanciation = Nord,
+  caractérisation & subsomption = Est, représentation = Ouest ; étalement perpendiculaire pour
+  éviter les chevauchements ; clic sur un node périphérique = recentrage.
+- **Vue graphique** : sélecteur de **layout automatique** (force / hiérarchique / concentrique
+  / cercle / grille), persistant.
+
+### 10.5 Interactions
+
+- **Créer une relation** : **glisser-déposer** un node sur un autre, dans **toutes** les vues
+  (textuelles et graphiques) → modale (type de relation, puis sens).
+- **Supprimer une relation** : **clic droit** sur une arête (graphes) ou une ligne de relation
+  (vue textuelle centrée).
+
+### 10.6 Onglet « Règles » (capture seule)
+
+Capture de règles `SI … ALORS …` : prémisses et conclusions = listes d'**atomes**
+`variable —type de relation→ variable` (liés par ET). **Aucune exécution** au MVP (moteur
+d'inférence = backlog). Stockage : tableau `rules` dans la base ; CRUD via l'API.
+
+### 10.7 Divers
+
+- **Mode natif** : le frontend est servi en **no-cache** (comme nginx en Docker) pour éviter
+  tout JS périmé.
+- Le titre **KeQuarks** (en-tête) est un lien vers le dépôt GitHub.
