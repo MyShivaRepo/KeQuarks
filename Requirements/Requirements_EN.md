@@ -21,6 +21,10 @@ complementary dichotomies (Topic/Role, Subject/Object, Concept/Property).
 It also documents the once-unresolved blocking point — the "**BOOTSTRAP problem**" — and
 records how the MVP addressed it in practice.
 
+> **Source article:** Bernard Chabot, *About Link Reification, Multi-Typing, Meta-Modeling …
+> & Zen* —
+> <https://www.linkedin.com/pulse/link-reification-multi-typing-meta-modeling-zen-bernard-chabot/>
+
 ### 1.1 Split between the two target projects
 
 The Node + typed-edges principle is architected in two complementary layers, carried by two
