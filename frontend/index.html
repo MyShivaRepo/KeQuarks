@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,31 +9,27 @@
 <body>
   <header class="topbar">
     <a class="brand" href="https://github.com/MyShivaRepo/KeQuarks" target="_blank" rel="noopener"
-       title="Ouvrir le dépôt GitHub KeQuarks">🧩 KeQuarks</a>
+       title="Open the KeQuarks GitHub repository">🧩 KeQuarks</a>
     <div class="base-picker">
-      <label for="baseSelect">Base :</label>
+      <label for="baseSelect">Base:</label>
       <select id="baseSelect"></select>
-      <button id="newBaseBtn" title="Nouvelle base">＋</button>
-      <button id="renameBaseBtn" title="Renommer la base">✎</button>
-      <button id="deleteBaseBtn" title="Supprimer la base">🗑</button>
+      <button id="newBaseBtn" title="New base">＋</button>
+      <button id="renameBaseBtn" title="Rename base">✎</button>
+      <button id="deleteBaseBtn" title="Delete base">🗑</button>
     </div>
     <div class="search">
-      <input id="searchInput" type="search" placeholder="Rechercher un node…">
+      <input id="searchInput" type="search" placeholder="Search a node…">
     </div>
   </header>
 
-  <section class="editor">
-    <div class="row">
-      <button id="newNodeBtn" class="primary">＋ Node</button>
-    </div>
-  </section>
-
   <nav class="tabs">
-    <button class="tab active" data-tab="text">Vue textuelle</button>
-    <button class="tab" data-tab="centered">Vue textuelle centrée</button>
-    <button class="tab" data-tab="cgraph">Vue graphique centrée</button>
-    <button class="tab" data-tab="graph">Vue graphique</button>
-    <button class="tab" data-tab="rules">Règles</button>
+    <button class="tab active" data-tab="text">Knowledge Base</button>
+    <button class="tab" data-tab="centered">Centered text view</button>
+    <button class="tab" data-tab="cgraph">Centered graph view</button>
+    <button class="tab" data-tab="graph">Graph view</button>
+    <button class="tab" data-tab="rules">Rules</button>
+    <button class="tab" data-tab="model">Model</button>
+    <button class="tab" data-tab="meta">Meta-Model</button>
   </nav>
 
   <main>
@@ -44,24 +40,45 @@
       <div id="centeredView"></div>
     </div>
     <div id="tab-cgraph" class="tabpane">
+      <div class="graph-toolbar">
+        <span class="spacer"></span>
+        <label for="cgDepth">Depth:</label>
+        <select id="cgDepth">
+          <option value="1">1 (direct)</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
       <p class="hint" id="cgraphHint"></p>
       <div id="cyCentered"></div>
     </div>
     <div id="tab-rules" class="tabpane">
       <div id="rulesView"></div>
     </div>
+    <div id="tab-model" class="tabpane">
+      <div id="modelView"></div>
+    </div>
+    <div id="tab-meta" class="tabpane">
+      <div id="metaView"></div>
+    </div>
     <div id="tab-graph" class="tabpane">
       <div class="graph-toolbar">
         <span class="spacer"></span>
-        <label for="graphLayout">Layout :</label>
-        <select id="graphLayout">
-          <option value="cose">Force dirigée</option>
-          <option value="breadthfirst">Hiérarchique</option>
-          <option value="concentric">Concentrique</option>
-          <option value="circle">Cercle</option>
-          <option value="grid">Grille</option>
+        <label for="graphScope">Show:</label>
+        <select id="graphScope">
+          <option value="all">All</option>
+          <option value="model">Model</option>
+          <option value="kb">Knowledge Base</option>
         </select>
-        <button id="graphRelayout" title="Réagencer">Réagencer</button>
+        <label for="graphLayout">Layout:</label>
+        <select id="graphLayout">
+          <option value="cose">Force-directed</option>
+          <option value="breadthfirst">Hierarchical</option>
+          <option value="concentric">Concentric</option>
+          <option value="circle">Circle</option>
+          <option value="grid">Grid</option>
+        </select>
+        <button id="graphRelayout" title="Re-layout">Re-layout</button>
       </div>
       <div id="cy"></div>
     </div>

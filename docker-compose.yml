@@ -2,12 +2,14 @@ services:
   backend:
     build: ./backend
     container_name: kequarks-backend
-    # Tourne sous l'utilisateur hôte → les fichiers écrits dans ./data
+    # Tourne sous l'utilisateur hôte → les fichiers écrits dans le store
     # appartiennent à l'utilisateur courant, jamais à root (UID/GID depuis .env).
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./backend:/app
-      - ./data:/data
+      # Store PARTAGÉ avec le mode natif : ~/.kequarks côté hôte est monté
+      # dans le conteneur → les bases sont communes quel que soit le mode.
+      - ${HOME}/.kequarks:/data/.kequarks
     environment:
       - KEQUARKS_DIR=/data/.kequarks
       - PYTHONUNBUFFERED=1

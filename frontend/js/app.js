@@ -8,6 +8,9 @@ const state = {
   roles: {},
   search: '',
   centered: { current: null, history: [] },   // vue centrée
+  cgDepth: 1,                                   // profondeur d'exploration du graphe centré
+  graphScope: 'all',                            // Graph view : all | model | kb
+  sectionFilters: {},                           // filtre par section (clé = titre)
   rules: [],
   editingRule: null,                            // règle en cours d'édition
 };
@@ -76,6 +79,7 @@ function renderAll() {
   renderTextView();
   if (activeTab() === 'centered') renderCentered();
   if (activeTab() === 'cgraph') renderCenteredGraph();
+  if (activeTab() === 'model') renderModel();
 }
 
 function resolveNode(id) {
@@ -92,8 +96,8 @@ function recomputeCounts() {
 // Discriminant d'un node : son/ses type(s) (via instanciation), sinon un court id.
 function discriminant(id) {
   const types = state.relations
-    .filter(r => r.source === id && r.relationType === 'rt:instanciation')
-    .map(r => (state.nodes.find(n => n.id === r.target) || {}).label)
+    .filter(r => r.target === id && r.relationType === 'rt:instanciation')
+    .map(r => (state.nodes.find(n => n.id === r.source) || {}).label)
     .filter(Boolean);
   return types.length ? types.join(', ') : '#' + String(id).slice(0, 4);
 }
@@ -123,42 +127,41 @@ function renderTextView() {
   root.innerHTML = '';
   recomputeCounts();
   if (!state.baseId) {
-    root.innerHTML = '<p class="hint">Aucune base. Créez-en une avec ＋.</p>';
+    root.innerHTML = '<p class="hint">No base. Create one with ＋.</p>';
     return;
   }
   // Construire les sections indexées par clé.
-  const sections = { 'Tous les nodes': group('Tous les nodes', state.nodes, true) };
+  const sections = { 'All nodes': group('All nodes', state.nodes, true) };
   Object.entries(state.roles).forEach(([role, list]) => {
     sections[role] = group(role, list, false);
   });
   // Ordre : ordre sauvegardé (filtré) puis nouvelles clés à la fin.
-  const saved = loadSectionOrder();
+  const saved = loadOrder(SECTION_ORDER_KEY);
   const ordered = [];
   (saved || []).forEach(k => { if (sections[k] && !ordered.includes(k)) ordered.push(k); });
   Object.keys(sections).forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
   ordered.forEach(k => {
     const el = sections[k];
     el.dataset.key = k;
-    makeSectionDraggable(el, k);
+    makeSectionDraggable(el, k, SECTION_ORDER_KEY, renderTextView);
     root.appendChild(el);
   });
 }
 
 // --- Réordonnancement des sections de la Vue textuelle (à la souris) --------
 const SECTION_MIME = 'application/x-kq-section';
-const SECTION_ORDER_KEY = 'kq.sectionOrder';
+const SECTION_ORDER_KEY = 'kq.sectionOrder';        // ordre des sections — Knowledge Base
+const MODEL_ORDER_KEY = 'kq.modelSectionOrder';     // ordre des sections — Model
 
-function loadSectionOrder() {
-  try { return JSON.parse(localStorage.getItem(SECTION_ORDER_KEY) || 'null'); } catch (_) { return null; }
+function loadOrder(storeKey) {
+  try { return JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch (_) { return null; }
 }
-function saveSectionOrder(order) {
-  try { localStorage.setItem(SECTION_ORDER_KEY, JSON.stringify(order)); } catch (_) {}
-}
-function currentSectionKeys() {
-  return [...document.querySelectorAll('#textView .role-group')].map(g => g.dataset.key);
+function saveOrder(storeKey, order) {
+  try { localStorage.setItem(storeKey, JSON.stringify(order)); } catch (_) {}
 }
 
-function makeSectionDraggable(el, key) {
+// Rend une section réordonnable à la souris (par son en-tête), dans son conteneur.
+function makeSectionDraggable(el, key, storeKey, rerender) {
   const header = el.querySelector('h3');
   if (!header) return;
   header.draggable = true;
@@ -182,13 +185,24 @@ function makeSectionDraggable(el, key) {
     el.classList.remove('sec-drop-hover');
     const dragged = e.dataTransfer.getData(SECTION_MIME);
     if (!dragged || dragged === key) return;
-    const order = currentSectionKeys().filter(k => k !== dragged);
+    const container = el.parentElement;
+    const order = [...container.querySelectorAll('.role-group')].map(g => g.dataset.key).filter(k => k !== dragged);
     const idx = order.indexOf(key);
     const rect = el.getBoundingClientRect();
     const after = e.clientY > rect.top + rect.height / 2;
     order.splice(after ? idx + 1 : idx, 0, dragged);
-    saveSectionOrder(order);
-    renderTextView();
+    saveOrder(storeKey, order);
+    rerender();
+  });
+}
+
+// Filtre les lignes d'une section selon un texte (indépendant, sans re-render).
+function applySecFilter(el, value) {
+  const v = (value || '').trim().toLowerCase();
+  el.querySelectorAll('.node-list > li').forEach(li => {
+    if (li.classList.contains('empty')) return;
+    const lbl = (li.querySelector('.node-label') || li).textContent.toLowerCase();
+    li.style.display = (!v || lbl.includes(v)) ? '' : 'none';
   });
 }
 
@@ -205,7 +219,7 @@ function toggleCollapse(title) {
   const set = new Set(loadCollapsed());
   if (set.has(title)) set.delete(title); else set.add(title);
   saveCollapsed([...set]);
-  renderTextView();
+  if (activeTab() === 'model') renderModel(); else renderTextView();
 }
 
 function group(title, list, isAll) {
@@ -217,9 +231,30 @@ function group(title, list, isAll) {
   const h = document.createElement('h3');
   h.innerHTML =
     `<span class="grp-title"><span class="caret">${collapsed ? '▸' : '▾'}</span>${escapeHtml(title)}</span>`
-    + `<span class="count">${filtered.length}</span>`;
+    + `<span class="grp-right"><span class="count">${filtered.length}</span></span>`;
   h.addEventListener('click', () => toggleCollapse(title));
+  // La section « All nodes » porte le bouton de création de node.
+  if (isAll) {
+    const add = document.createElement('button');
+    add.className = 'sec-add primary';
+    add.textContent = '＋ Node';
+    add.title = 'New node';
+    add.addEventListener('click', e => { e.stopPropagation(); newNode(); });
+    h.querySelector('.grp-right').appendChild(add);
+  }
   el.appendChild(h);
+  // Filtre propre à la section (indépendant, sans re-render).
+  const finput = document.createElement('input');
+  finput.type = 'search';
+  finput.className = 'sec-filter';
+  finput.placeholder = 'Filter…';
+  finput.value = state.sectionFilters[title] || '';
+  finput.addEventListener('click', e => e.stopPropagation());
+  finput.addEventListener('input', e => {
+    state.sectionFilters[title] = e.target.value;
+    applySecFilter(el, e.target.value);
+  });
+  el.appendChild(finput);
   const ul = document.createElement('ul');
   ul.className = 'node-list';
   if (filtered.length === 0) {
@@ -231,6 +266,7 @@ function group(title, list, isAll) {
     filtered.forEach(n => ul.appendChild(nodeRow(n, isAll)));
   }
   el.appendChild(ul);
+  applySecFilter(el, state.sectionFilters[title] || '');
   return el;
 }
 
@@ -296,7 +332,7 @@ function nodeRow(n, editable) {
 
   const name = document.createElement('span');
   name.className = 'node-name link';
-  name.title = 'Ouvrir dans la vue centrée';
+  name.title = 'Open in centered view';
   name.onclick = () => openCentered(n.id);
   renderNodeName(name, n.id, n.label);
   li.appendChild(name);
@@ -305,10 +341,10 @@ function nodeRow(n, editable) {
     const actions = document.createElement('span');
     actions.className = 'actions';
     const ren = document.createElement('button');
-    ren.textContent = '✎'; ren.title = 'Renommer';
+    ren.textContent = '✎'; ren.title = 'Rename';
     ren.onclick = () => renameNode(n);
     const del = document.createElement('button');
-    del.textContent = '🗑'; del.title = 'Supprimer';
+    del.textContent = '🗑'; del.title = 'Delete';
     del.onclick = () => removeNode(n);
     actions.append(ren, del);
     li.appendChild(actions);
@@ -316,10 +352,29 @@ function nodeRow(n, editable) {
   return li;
 }
 
+// Restreint le graphe selon la portée choisie (all | model | kb).
+//
+// Principe : la SEULE preuve du statut d'un node est la relation d'instanciation.
+//  - model : node PROUVÉ type     = source (côté type) d'au moins une instanciation
+//            → rôle dérivé « type ».
+//  - kb    : node PROUVÉ individu  = cible (côté individu) d'au moins une instanciation
+//            → rôle dérivé « individual ».
+// Aucune exception : sans preuve, un node n'apparaît dans aucun des deux (seulement
+// dans « all »). Un node peut être les deux (ex. « Personne » : instance de
+// « EA Concept » ET type de « Bernard Chabot ») → il figure alors dans les deux.
+function filterGraphByScope(data, scope) {
+  if (scope !== 'model' && scope !== 'kb') return data;
+  const roleLabel = scope === 'model' ? 'type' : 'individual';
+  const ids = new Set((state.roles[roleLabel] || []).map(n => n.id));
+  const nodes = data.nodes.filter(n => ids.has(n.id));
+  const edges = data.edges.filter(e => ids.has(e.source) && ids.has(e.target));
+  return { nodes, edges };
+}
+
 function refreshGraph() {
   guard(async () => {
     const data = await API.graph(state.baseId);
-    Graph.render(data);
+    Graph.render(filterGraphByScope(data, state.graphScope));
     Graph.resize();
   });
 }
@@ -340,6 +395,11 @@ function setCentered(id) {
 function openCentered(id) {
   setCentered(id);
   switchTab('centered');
+}
+
+function openCenteredGraph(id) {
+  setCentered(id);
+  switchTab('cgraph');
 }
 
 function nodeNameLink(id) {
@@ -379,7 +439,7 @@ function relationsBlock(title, rels, otherKey) {
       li.appendChild(type);
     }
     enableRelationDnD(li, () => ({ id: otherId, label: (resolveNode(otherId) || {}).label || otherId }));
-    li.title = 'Clic droit pour supprimer cette relation';
+    li.title = 'Right-click to delete this relation';
     li.addEventListener('contextmenu', e => {
       e.preventDefault();
       removeRelation(r.id, relationReadable(r));
@@ -394,11 +454,11 @@ function historyBlock() {
   const box = document.createElement('div');
   box.className = 'rel-block history';
   const t = document.createElement('h4');
-  t.textContent = `Historique (${state.centered.history.length}/${HISTORY_MAX})`;
+  t.textContent = `History (${state.centered.history.length}/${HISTORY_MAX})`;
   box.appendChild(t);
   if (!state.centered.history.length) {
     const p = document.createElement('p');
-    p.className = 'hint'; p.textContent = 'Aucun node encore visité.';
+    p.className = 'hint'; p.textContent = 'No node visited yet.';
     box.appendChild(p);
     return box;
   }
@@ -418,7 +478,7 @@ function renderCentered() {
   const root = $('#centeredView');
   root.innerHTML = '';
   recomputeCounts();
-  if (!state.baseId) { root.innerHTML = '<p class="hint">Aucune base.</p>'; return; }
+  if (!state.baseId) { root.innerHTML = '<p class="hint">No base.</p>'; return; }
 
   const c = state.centered;
   const layout = document.createElement('div');
@@ -438,8 +498,8 @@ function renderCentered() {
     renderNodeName(title, node.id, node.label);
     enableRelationDnD(title, () => ({ id: node.id, label: node.label }));
     card.appendChild(title);
-    card.appendChild(relationsBlock('Relations sortantes', state.relations.filter(r => r.source === node.id), 'target'));
-    card.appendChild(relationsBlock('Relations entrantes', state.relations.filter(r => r.target === node.id), 'source'));
+    card.appendChild(relationsBlock('Outgoing relations', state.relations.filter(r => r.source === node.id), 'target'));
+    card.appendChild(relationsBlock('Incoming relations', state.relations.filter(r => r.target === node.id), 'source'));
     main.appendChild(card);
   }
   layout.appendChild(main);
@@ -458,7 +518,7 @@ function renderCentered() {
 // relation. Le node central est à l'origine ; l'autre node est placé dans cette
 // direction (ou à l'opposé si le central est la cible, pour garder le sens).
 const REL_DIRECTION = {
-  'rt:instanciation':        { x: 0,  y: -1 },   // Nord
+  'rt:instanciation':        { x: 0,  y: 1 },    // source=type → cible=individual ; garde le type au Nord
   'rt:caracterisation-type': { x: 1,  y: 0 },    // Est
   'rt:caracterisation':      { x: 1,  y: 0 },    // Est
   'rt:subsomption':          { x: 1,  y: 0 },    // Est
@@ -468,45 +528,63 @@ const REL_DIRECTION = {
 const CG_RADIUS = 175;   // distance centre → périphérie
 const CG_SPACING = 95;   // écart perpendiculaire entre nodes d'une même direction
 
-function centeredGraphData() {
+// Exploration en largeur (BFS) jusqu'à `depth` niveaux depuis le node central.
+// Placement directionnel récursif : chaque enfant est posé à partir de son parent
+// dans la direction de sa relation, étalé perpendiculairement pour ne pas se superposer.
+function centeredGraphData(depth) {
+  depth = Math.max(1, depth || 1);
   const cid = state.centered.current;
-  const nodes = [{ id: cid, label: (resolveNode(cid) || {}).label || cid, center: true, x: 0, y: 0 }];
-  const seen = new Set([cid]);
+  const labelOf = id => (resolveNode(id) || {}).label || id;
+  const placed = new Map();                    // id -> node {x, y}
+  const center = { id: cid, label: labelOf(cid), center: true, x: 0, y: 0 };
+  placed.set(cid, center);
+  const nodes = [center];
   const edges = [];
-  state.relations.forEach(r => {
-    let other = null, dir = null;
-    const base = REL_DIRECTION[r.relationType] || { x: 1, y: 1 };
-    if (r.source === cid) { other = r.target; dir = { x: base.x, y: base.y }; }
-    else if (r.target === cid) { other = r.source; dir = { x: -base.x, y: -base.y }; }
-    else return;
-    if (!seen.has(other)) {
-      seen.add(other);
-      nodes.push({ id: other, label: (resolveNode(other) || {}).label || other, center: false, _dir: dir });
-    }
-    // La flèche « instanciation » pointe du type vers l'instance.
-    let es = r.source, et = r.target;
-    if (r.relationType === 'rt:instanciation') { es = r.target; et = r.source; }
-    edges.push({ id: r.id, source: es, target: et, label: relationTypeLabel(r.relationType) });
-  });
+  const edgeSeen = new Set();
 
-  // Grouper les périphériques par direction, puis les étaler perpendiculairement
-  // pour qu'ils ne se superposent jamais.
-  const groups = {};
-  nodes.filter(n => !n.center).forEach(n => {
-    const key = `${n._dir.x},${n._dir.y}`;
-    (groups[key] = groups[key] || []).push(n);
-  });
-  Object.values(groups).forEach(group => {
-    const d = group[0]._dir;
-    const perp = { x: -d.y, y: d.x };
-    const k = group.length;
-    group.forEach((n, i) => {
-      const offset = (i - (k - 1) / 2) * CG_SPACING;
-      n.x = CG_RADIUS * d.x + offset * perp.x;
-      n.y = CG_RADIUS * d.y + offset * perp.y;
-      delete n._dir;
+  const pushEdge = r => {
+    if (edgeSeen.has(r.id)) return;
+    edgeSeen.add(r.id);
+    edges.push({ id: r.id, source: r.source, target: r.target, label: relationTypeLabel(r.relationType) });
+  };
+
+  let frontier = [cid];
+  for (let lvl = 1; lvl <= depth && frontier.length; lvl++) {
+    const next = [];
+    frontier.forEach(pid => {
+      const pPos = placed.get(pid);
+      const groups = {};                       // dirKey -> [{other, dir, r}]
+      state.relations.forEach(r => {
+        let other = null, dir = null;
+        const base = REL_DIRECTION[r.relationType] || { x: 1, y: 1 };
+        if (r.source === pid) { other = r.target; dir = { x: base.x, y: base.y }; }
+        else if (r.target === pid) { other = r.source; dir = { x: -base.x, y: -base.y }; }
+        else return;
+        pushEdge(r);
+        if (placed.has(other)) return;         // déjà placé : on garde juste l'arête
+        const key = `${dir.x},${dir.y}`;
+        (groups[key] = groups[key] || []).push({ other, dir, r });
+      });
+      Object.values(groups).forEach(group => {
+        const d = group[0].dir;
+        const perp = { x: -d.y, y: d.x };
+        const k = group.length;
+        group.forEach((item, i) => {
+          if (placed.has(item.other)) return;
+          const offset = (i - (k - 1) / 2) * CG_SPACING;
+          const node = {
+            id: item.other, label: labelOf(item.other), center: false,
+            x: pPos.x + CG_RADIUS * d.x + offset * perp.x,
+            y: pPos.y + CG_RADIUS * d.y + offset * perp.y,
+          };
+          placed.set(item.other, node);
+          nodes.push(node);
+          next.push(item.other);
+        });
+      });
     });
-  });
+    frontier = next;
+  }
   return { nodes, edges };
 }
 
@@ -518,7 +596,7 @@ function renderCenteredGraph() {
     return;
   }
   if (hint) hint.textContent = '';
-  CenterGraph.render(centeredGraphData());
+  CenterGraph.render(centeredGraphData(state.cgDepth));
   CenterGraph.resize();
 }
 
@@ -528,8 +606,8 @@ function atomText(a) {
 }
 function ruleText(rule) {
   return {
-    si: (rule.premises || []).map(atomText).join(' ET ') || '…',
-    alors: (rule.conclusions || []).map(atomText).join(' ET ') || '…',
+    si: (rule.premises || []).map(atomText).join(' AND ') || '…',
+    alors: (rule.conclusions || []).map(atomText).join(' AND ') || '…',
   };
 }
 function emptyAtom() {
@@ -541,14 +619,14 @@ function escapeHtml(s) {
 
 async function renderRules() {
   const root = $('#rulesView');
-  if (!state.baseId) { root.innerHTML = '<p class="hint">Aucune base.</p>'; return; }
+  if (!state.baseId) { root.innerHTML = '<p class="hint">No base.</p>'; return; }
   if (state.editingRule) { renderRuleEditor(root); return; }
   root.innerHTML = '';
   const bar = document.createElement('div');
   bar.className = 'row';
   const add = document.createElement('button');
   add.className = 'primary';
-  add.textContent = '＋ Nouvelle règle';
+  add.textContent = '＋ New rule';
   add.onclick = newRule;
   bar.appendChild(add);
   root.appendChild(bar);
@@ -557,7 +635,7 @@ async function renderRules() {
   if (!state.rules.length) {
     const p = document.createElement('p');
     p.className = 'hint';
-    p.textContent = 'Aucune règle. Créez-en une avec « ＋ Nouvelle règle ».';
+    p.textContent = 'No rule. Create one with “＋ New rule”.';
     root.appendChild(p);
     return;
   }
@@ -574,16 +652,16 @@ function ruleCard(rule) {
   title.textContent = rule.name;
   const actions = document.createElement('span');
   actions.className = 'actions';
-  const ed = document.createElement('button'); ed.textContent = '✎'; ed.title = 'Éditer';
+  const ed = document.createElement('button'); ed.textContent = '✎'; ed.title = 'Edit';
   ed.onclick = () => editRule(rule);
-  const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
+  const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Delete';
   del.onclick = () => removeRule(rule);
   actions.append(ed, del);
   head.append(title, actions);
   el.appendChild(head);
   const body = document.createElement('div');
   body.className = 'rule-body';
-  body.innerHTML = `<span class="kw">SI</span> ${escapeHtml(si)} <span class="kw">ALORS</span> ${escapeHtml(alors)}`;
+  body.innerHTML = `<span class="kw">IF</span> ${escapeHtml(si)} <span class="kw">THEN</span> ${escapeHtml(alors)}`;
   el.appendChild(body);
   return el;
 }
@@ -609,21 +687,21 @@ function renderRuleEditor(root) {
 
   const nameRow = document.createElement('div');
   nameRow.className = 'row';
-  const lbl = document.createElement('label'); lbl.textContent = 'Nom :';
+  const lbl = document.createElement('label'); lbl.textContent = 'Name:';
   const nameInput = document.createElement('input');
-  nameInput.type = 'text'; nameInput.value = r.name; nameInput.placeholder = 'Nom de la règle';
+  nameInput.type = 'text'; nameInput.value = r.name; nameInput.placeholder = 'Rule name';
   nameInput.oninput = e => { r.name = e.target.value; };
   nameRow.append(lbl, nameInput);
   card.appendChild(nameRow);
 
-  card.appendChild(atomSection('SI', r.premises));
-  card.appendChild(atomSection('ALORS', r.conclusions));
+  card.appendChild(atomSection('IF', r.premises));
+  card.appendChild(atomSection('THEN', r.conclusions));
 
   const actions = document.createElement('div');
   actions.className = 'row rule-actions';
-  const save = document.createElement('button'); save.className = 'primary'; save.textContent = 'Enregistrer';
+  const save = document.createElement('button'); save.className = 'primary'; save.textContent = 'Save';
   save.onclick = saveRule;
-  const cancel = document.createElement('button'); cancel.textContent = 'Annuler';
+  const cancel = document.createElement('button'); cancel.textContent = 'Cancel';
   cancel.onclick = () => { state.editingRule = null; renderRules(); };
   actions.append(save, cancel);
   card.appendChild(actions);
@@ -635,7 +713,7 @@ function atomSection(kw, atoms) {
   const sec = document.createElement('div');
   sec.className = 'atom-section';
   const h = document.createElement('h4');
-  h.innerHTML = `<span class="kw">${kw}</span> <span class="hint">(atomes liés par ET)</span>`;
+  h.innerHTML = `<span class="kw">${kw}</span> <span class="hint">(atoms joined by AND)</span>`;
   sec.appendChild(h);
   const list = document.createElement('div');
   list.className = 'atom-list';
@@ -643,7 +721,7 @@ function atomSection(kw, atoms) {
   sec.appendChild(list);
   const add = document.createElement('button');
   add.className = 'add-atom';
-  add.textContent = '＋ Ajouter un atome';
+  add.textContent = '＋ Add an atom';
   add.onclick = () => { atoms.push(emptyAtom()); renderRules(); };
   sec.appendChild(add);
   return sec;
@@ -665,7 +743,7 @@ function atomRow(a, atoms, i) {
   const obj = document.createElement('input');
   obj.type = 'text'; obj.value = a.object; obj.placeholder = 'variable'; obj.className = 'var';
   obj.oninput = e => { a.object = e.target.value; };
-  const del = document.createElement('button'); del.textContent = '✕'; del.title = 'Retirer';
+  const del = document.createElement('button'); del.textContent = '✕'; del.title = 'Remove';
   del.onclick = () => { atoms.splice(i, 1); if (!atoms.length) atoms.push(emptyAtom()); renderRules(); };
   row.append(subj, sel, obj, del);
   return row;
@@ -673,13 +751,13 @@ function atomRow(a, atoms, i) {
 
 function saveRule() {
   const r = state.editingRule;
-  if (!r.name.trim()) { toast('Nommez la règle'); return; }
+  if (!r.name.trim()) { toast('Name the rule'); return; }
   const clean = list => list
     .filter(a => a.subject.trim() && a.object.trim())
     .map(a => ({ subject: a.subject.trim(), relationType: a.relationType, object: a.object.trim() }));
   const body = { name: r.name.trim(), premises: clean(r.premises), conclusions: clean(r.conclusions) };
   if (!body.premises.length || !body.conclusions.length) {
-    toast('Renseignez au moins un atome SI et un atome ALORS (variables non vides)');
+    toast('Provide at least one IF atom and one THEN atom (non-empty variables)');
     return;
   }
   guard(async () => {
@@ -687,23 +765,23 @@ function saveRule() {
     else await API.addRule(state.baseId, body);
     state.editingRule = null;
     await renderRules();
-    toast('Règle enregistrée');
+    toast('Rule saved');
   });
 }
 
 function removeRule(rule) {
-  if (!confirm(`Supprimer la règle « ${rule.name} » ?`)) return;
-  guard(async () => { await API.deleteRule(state.baseId, rule.id); await renderRules(); toast('Règle supprimée'); });
+  if (!confirm(`Delete rule “${rule.name}”?`)) return;
+  guard(async () => { await API.deleteRule(state.baseId, rule.id); await renderRules(); toast('Rule deleted'); });
 }
 
 // --- Glisser-déposer → modale de création de relation ----------------------
 const PHRASE = {
-  'rt:instanciation':        (s, t) => `${s} est une ${t}`,
-  'rt:subsomption':          (s, t) => `${t} spécialise ${s}`,
-  'rt:caracterisation-type': (s, t) => `${s} est caractérisé par ${t}`,
-  'rt:caracterisation':      (s, t) => `${s} est caractérisé par ${t}`,
-  'rt:representation-type':  (s, t) => `${s} est représenté par ${t}`,
-  'rt:representation':       (s, t) => `${s} est représenté par ${t}`,
+  'rt:instanciation':        (s, t) => `${t} is a ${s}`,
+  'rt:subsomption':          (s, t) => `${t} specializes ${s}`,
+  'rt:caracterisation-type': (s, t) => `${s} is characterized by ${t}`,
+  'rt:caracterisation':      (s, t) => `${s} is characterized by ${t}`,
+  'rt:representation-type':  (s, t) => `${s} is represented by ${t}`,
+  'rt:representation':       (s, t) => `${s} is represented by ${t}`,
 };
 
 function relationTypeLabel(id) {
@@ -719,6 +797,7 @@ async function afterRelationChange() {
   renderTextView();
   if (activeTab() === 'centered') renderCentered();
   if (activeTab() === 'cgraph') renderCenteredGraph();
+  if (activeTab() === 'model') renderModel();
 }
 
 // a = node lâché (source par défaut), b = node cible. restore() = optionnel (graphe).
@@ -732,14 +811,14 @@ function openRelationDialog(a, b, restore, liveAdd) {
   const modal = document.createElement('div');
   modal.className = 'modal';
   modal.innerHTML = `
-    <h3>Relation entre « ${aName} » et « ${bName} »</h3>
-    <p class="step">1. Type de relation</p>
+    <h3>Relation between “${aName}” and “${bName}”</h3>
+    <p class="step">1. Relation type</p>
     <div class="type-choices"></div>
     <div class="dir-step" hidden>
-      <p class="step">2. Sens de la relation</p>
+      <p class="step">2. Direction</p>
       <div class="dir-choices"></div>
     </div>
-    <div class="modal-actions"><button class="cancel">Annuler</button></div>`;
+    <div class="modal-actions"><button class="cancel">Cancel</button></div>`;
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
 
@@ -795,7 +874,7 @@ function openRelationDialog(a, b, restore, liveAdd) {
       }
       await afterRelationChange();
       close(true);
-      toast('Relation créée');
+      toast('Relation created');
     });
   }
 }
@@ -812,21 +891,21 @@ function handleTextDrop(a, b) { openRelationDialog(a, b, null, false); }
 
 // --- Actions ---------------------------------------------------------------
 function newBase() {
-  const name = prompt('Nom de la nouvelle base :');
+  const name = prompt('New base name:');
   if (!name) return;
   guard(async () => {
     const b = await API.createBase(name.trim());
     state.baseId = b.id;
     state.centered = { current: null, history: [] };
     await refreshBases();
-    toast('Base créée');
+    toast('Base created');
   });
 }
 
 function renameBase() {
   if (!state.baseId) return;
   const cur = state.bases.find(b => b.id === state.baseId);
-  const name = prompt('Nouveau nom :', cur ? cur.name : '');
+  const name = prompt('New name:', cur ? cur.name : '');
   if (!name) return;
   guard(async () => { await API.renameBase(state.baseId, name.trim()); await refreshBases(); });
 }
@@ -834,31 +913,31 @@ function renameBase() {
 function deleteBase() {
   if (!state.baseId) return;
   const cur = state.bases.find(b => b.id === state.baseId);
-  if (!confirm(`Supprimer la base « ${cur ? cur.name : ''} » ?`)) return;
+  if (!confirm(`Delete base “${cur ? cur.name : ""}”?`)) return;
   guard(async () => {
     await API.deleteBase(state.baseId);
     state.baseId = null;
     state.centered = { current: null, history: [] };
     await refreshBases();
-    toast('Base supprimée');
+    toast('Base deleted');
   });
 }
 
 function newNode() {
-  if (!state.baseId) { toast('Créez d\'abord une base'); return; }
-  const label = prompt('Label du node :');
+  if (!state.baseId) { toast('Create a base first'); return; }
+  const label = prompt('Node label:');
   if (!label) return;
   guard(async () => { await API.addNode(state.baseId, label.trim()); await loadBase(); });
 }
 
 function renameNode(n) {
-  const label = prompt('Nouveau label :', n.label);
+  const label = prompt('New label:', n.label);
   if (!label) return;
   guard(async () => { await API.renameNode(state.baseId, n.id, label.trim()); await loadBase(); });
 }
 
 function removeNode(n) {
-  if (!confirm(`Supprimer « ${n.label} » ? (les relations qui l'utilisent seront retirées)`)) return;
+  if (!confirm(`Delete “${n.label}”? (relations using it will be removed)`)) return;
   guard(async () => { await API.deleteNode(state.baseId, n.id); await loadBase(); });
 }
 
@@ -870,12 +949,12 @@ function relationReadable(r) {
 }
 
 function removeRelation(relId, readable) {
-  if (!confirm(`Supprimer la relation « ${readable} » ?`)) return;
+  if (!confirm(`Delete relation “${readable}”?`)) return;
   guard(async () => {
     await API.deleteRelation(state.baseId, relId);
     await afterRelationChange();
     if (activeTab() === 'graph') refreshGraph();
-    toast('Relation supprimée');
+    toast('Relation deleted');
   });
 }
 
@@ -895,6 +974,94 @@ function switchTab(name) {
   if (name === 'centered') renderCentered();
   if (name === 'cgraph') renderCenteredGraph();
   if (name === 'rules') renderRules();
+  if (name === 'model') renderModel();
+  if (name === 'meta') renderMetaModel();
+}
+
+// --- Onglet Model : les types, classés par le rôle qu'ils jouent aussi ------
+function renderModel() {
+  const root = $('#modelView');
+  root.innerHTML = '';
+  if (!state.baseId) { root.innerHTML = '<p class="hint">No base.</p>'; return; }
+  recomputeCounts();
+  const types = state.roles['type'] || [];
+  const idSet = label => new Set((state.roles[label] || []).map(x => x.id));
+  const subj = idSet('subject'), obj = idSet('object'), cer = idSet('characterizer');
+
+  const intro = document.createElement('p');
+  intro.className = 'hint';
+  intro.textContent = 'Model level — the type nodes, grouped by the role they also play.';
+  root.appendChild(intro);
+
+  const sections = {
+    'topic type': group('topic type', types, false),
+    'subject type': group('subject type', types.filter(n => subj.has(n.id)), false),
+    'object type': group('object type', types.filter(n => obj.has(n.id)), false),
+    'characterizer type': group('characterizer type', types.filter(n => cer.has(n.id)), false),
+  };
+  const saved = loadOrder(MODEL_ORDER_KEY);
+  const ordered = [];
+  (saved || []).forEach(k => { if (sections[k] && !ordered.includes(k)) ordered.push(k); });
+  Object.keys(sections).forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+  ordered.forEach(k => {
+    const el = sections[k];
+    el.dataset.key = k;
+    makeSectionDraggable(el, k, MODEL_ORDER_KEY, renderModel);
+    root.appendChild(el);
+  });
+}
+
+// --- Onglet Meta-Model : liste des concepts fondateurs (lecture) -----------
+async function renderMetaModel() {
+  const root = $('#metaView');
+  root.innerHTML = '';
+  let meta;
+  try { meta = await API.metaModel(); } catch (e) { toast('⚠ ' + e.message); return; }
+
+  const intro = document.createElement('p');
+  intro.className = 'hint';
+  intro.textContent = 'Founding catalogue (level 0): every base is built on these relations and roles. '
+    + 'They are reified nodes, kept hidden from the other views.';
+  root.appendChild(intro);
+
+  const relSec = document.createElement('div');
+  relSec.className = 'meta-section';
+  const relH = document.createElement('h3');
+  relH.textContent = `Relation types (${meta.relations.length})`;
+  relSec.appendChild(relH);
+  const table = document.createElement('table');
+  table.className = 'meta-table';
+  table.innerHTML = '<thead><tr><th>Relation</th><th>source role</th><th></th><th>target role</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  meta.relations.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><strong>${escapeHtml(r.label)}</strong></td>`
+      + `<td>${escapeHtml(r.sourceRole)}</td><td class="arrow">→</td><td>${escapeHtml(r.targetRole)}</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  relSec.appendChild(table);
+  root.appendChild(relSec);
+
+  const roleSec = document.createElement('div');
+  roleSec.className = 'meta-section';
+  const roleH = document.createElement('h3');
+  roleH.textContent = `Roles (${meta.roles.length})`;
+  roleSec.appendChild(roleH);
+  const ul = document.createElement('ul');
+  ul.className = 'meta-roles';
+  meta.roles.forEach(role => {
+    const li = document.createElement('li');
+    li.textContent = role.label;
+    ul.appendChild(li);
+  });
+  roleSec.appendChild(ul);
+  root.appendChild(roleSec);
+
+  const note = document.createElement('p');
+  note.className = 'hint';
+  note.innerHTML = '✎ Editing the meta-model (user-defined relation types &amp; roles) — <em>coming soon</em>.';
+  root.appendChild(note);
 }
 
 // --- Réordonnancement des onglets à la souris ------------------------------
@@ -964,10 +1131,29 @@ function setGraphLayout(name) {
   Graph.applyLayout(name);
 }
 
+const GRAPH_SCOPE_KEY = 'kq.graphScope';
+
+function restoreGraphScope() {
+  let saved = null;
+  try { saved = localStorage.getItem(GRAPH_SCOPE_KEY); } catch (_) {}
+  if (saved) {
+    state.graphScope = saved;
+    const sel = $('#graphScope');
+    if (sel) sel.value = saved;
+  }
+}
+
+function setGraphScope(scope) {
+  state.graphScope = scope;
+  try { localStorage.setItem(GRAPH_SCOPE_KEY, scope); } catch (_) {}
+  refreshGraph();
+}
+
 // --- Événements ------------------------------------------------------------
 function bindEvents() {
   Graph.setDropHandler(handleGraphDrop);
   Graph.setEdgeContextHandler(onEdgeContext);
+  Graph.setNodeActivateHandler(openCenteredGraph);   // double-clic → vue graphique centrée
   CenterGraph.setCenterHandler(id => { setCentered(id); renderCenteredGraph(); });
   CenterGraph.setDropHandler(handleCenterGraphDrop);
   CenterGraph.setEdgeContextHandler(onEdgeContext);
@@ -980,16 +1166,21 @@ function bindEvents() {
   $('#newBaseBtn').onclick = newBase;
   $('#renameBaseBtn').onclick = renameBase;
   $('#deleteBaseBtn').onclick = deleteBase;
-  $('#newNodeBtn').onclick = newNode;
-  $('#searchInput').oninput = e => { state.search = e.target.value.trim().toLowerCase(); renderTextView(); };
+  $('#searchInput').oninput = e => {
+    state.search = e.target.value.trim().toLowerCase();
+    if (activeTab() === 'model') renderModel(); else renderTextView();
+  };
   $('#graphLayout').onchange = e => setGraphLayout(e.target.value);
   $('#graphRelayout').onclick = () => Graph.applyLayout();
+  $('#graphScope').onchange = e => setGraphScope(e.target.value);
+  $('#cgDepth').onchange = e => { state.cgDepth = parseInt(e.target.value, 10) || 1; renderCenteredGraph(); };
   document.querySelectorAll('.tab').forEach(tab => {
     tab.onclick = () => switchTab(tab.dataset.tab);
   });
   applySavedTabOrder();
   makeTabsSortable();
   restoreGraphLayout();
+  restoreGraphScope();
 }
 
 window.addEventListener('DOMContentLoaded', () => guard(init));
