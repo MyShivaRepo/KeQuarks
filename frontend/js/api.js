@@ -17,6 +17,7 @@ const API = {
 
   health()            { return this._json('GET', '/api/health'); },
   relationTypes()     { return this._json('GET', '/api/relation-types'); },
+  metaModel()         { return this._json('GET', '/api/meta-model'); },
 
   bases()             { return this._json('GET', '/api/bases'); },
   createBase(name)    { return this._json('POST', '/api/bases', { name }); },

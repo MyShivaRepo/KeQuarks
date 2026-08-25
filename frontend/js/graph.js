@@ -5,10 +5,13 @@ const Graph = {
   _startPos: null,
   _dropHandler: null,
   _onEdgeContext: null,
+  _onActivate: null,
+  _lastTap: { id: null, t: 0 },
   layoutName: 'cose',
 
   setDropHandler(fn) { this._dropHandler = fn; },
   setEdgeContextHandler(fn) { this._onEdgeContext = fn; },
+  setNodeActivateHandler(fn) { this._onActivate = fn; },   // double-clic sur un node
 
   // Layouts automatiques proposés (tous natifs Cytoscape, sans extension).
   _layoutOptions() {
@@ -85,6 +88,18 @@ const Graph = {
       layout: { name: 'cose', animate: false, padding: 20 },
     });
     this._bindDnd();
+    // Double-clic sur un node = activer (ex. ouvrir la vue graphique centrée).
+    // Cytoscape n'a pas d'événement double-tap fiable → détection manuelle.
+    this.cy.on('tap', 'node', e => {
+      const id = e.target.id();
+      const now = Date.now();
+      if (this._lastTap.id === id && now - this._lastTap.t < 350) {
+        this._lastTap = { id: null, t: 0 };
+        if (this._onActivate) this._onActivate(id);
+      } else {
+        this._lastTap = { id, t: now };
+      }
+    });
     // Clic droit sur une arête = supprimer la relation.
     this.cy.on('cxttap', 'edge', e => {
       if (this._onEdgeContext) this._onEdgeContext(e.target.id());

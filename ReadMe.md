@@ -1,7 +1,7 @@
 # 🧩 KeQuarks — Node-based knowledge editor
 
 Editor for a knowledge base whose single primitive is the **node**. A node has **no
-intrinsic type**: its roles (*individu*, *type*, *chose caractérisée*…) **emerge from its
+intrinsic type**: its roles (*individual*, *type*, *characterized thing*…) **emerge from its
 relations** and are **recomputed on the fly** (derived, reversible). Everything — including
 relations — is a node; the reification is materialized in storage but **hidden from the UI**,
 which stays simple and direct.
@@ -57,12 +57,12 @@ In native mode the app reads/writes your real filesystem; its data lives under
 
 | Relation | source role | target role |
 |---|---|---|
-| `subsomption` | généraliseur | spécialiseur |
-| `instanciation` | individu | type |
-| `type de caractérisation` | chose caractérisée | caractériseur |
-| `caractérisation` | chose caractérisée | caractériseur |
-| `type de représentation` | sujet | objet |
-| `représentation` | sujet | objet |
+| `subsumption` | generalizer | specializer |
+| `instantiation` | individual | type |
+| `characterization type` | characterized thing | characterizer |
+| `characterization` | characterized thing | characterizer |
+| `representation type` | subject | object |
+| `representation` | subject | object |
 
 - **Derived roles** — a node is never stamped with a role; its role lists are computed from
   the relations it participates in, and disappear when the last such relation is removed.
@@ -73,15 +73,15 @@ In native mode the app reads/writes your real filesystem; its data lives under
 
 ## Views
 
-- **Vue textuelle** — all nodes + one list per role (alphabetical); sections are
+- **Text view** — all nodes + one list per role (alphabetical); sections are
   drag-reorderable and collapsible.
-- **Vue textuelle centrée** — one node with its incoming/outgoing relations + a visited-node
+- **Centered text view** — one node with its incoming/outgoing relations + a visited-node
   history (depth 50).
-- **Vue graphique centrée** — the current node at the center, neighbours placed by relation
-  type (instanciation = North, caractérisation/subsomption = East, représentation = West).
-- **Vue graphique** — the whole graph, homogeneous direct edges, with an automatic-layout
+- **Centered graph view** — the current node at the center, neighbours placed by relation
+  type (instantiation = North, characterization/subsumption = East, representation = West).
+- **Graph view** — the whole graph, homogeneous direct edges, with an automatic-layout
   selector (force / hierarchical / concentric / circle / grid).
-- **Règles** — capture `IF … THEN …` inference rules (variable–relation–variable atoms).
+- **Rules** — capture `IF … THEN …` inference rules (variable–relation–variable atoms).
 
 ## Interactions
 
@@ -96,7 +96,7 @@ In native mode the app reads/writes your real filesystem; its data lives under
 backend/    FastAPI API, catalog, JSON store (reification ↔ collapse, derived roles, rules)
 frontend/   index.html, js/ (app, api, graph + Cytoscape), css/, nginx.conf
 docker-compose.yml
-Requirements/   besoin & conception (specs)
+Requirements/   requirements & design (specs)
 ```
 
 ## Out of scope (backlog)

@@ -313,14 +313,10 @@ def graph(base_id: str) -> dict:
     for r in data["relations"]:
         pub = _to_public(r)
         if pub["source"] in user_nodes and pub["target"] in user_nodes:
-            src, tgt = pub["source"], pub["target"]
-            # La flèche « instanciation » pointe du type vers l'instance.
-            if r["relationType"] == "rt:instanciation":
-                src, tgt = tgt, src
             edges.append({
                 "id": r["id"],
-                "source": src,
-                "target": tgt,
+                "source": pub["source"],
+                "target": pub["target"],
                 "label": catalog.RELATION_TYPES[r["relationType"]]["label"],
             })
     nodes = [{"id": nid, "label": lbl, "kind": "node"}

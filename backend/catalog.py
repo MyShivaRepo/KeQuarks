@@ -12,50 +12,50 @@ from __future__ import annotations
 
 # Rôles built-in : id -> label
 ROLES: dict[str, str] = {
-    "role:instance": "individu",
+    "role:instance": "individual",
     "role:type": "type",
-    "role:generaliseur": "généraliseur",
-    "role:specialiseur": "spécialiseur",
-    "role:chose-caracterisee": "chose caractérisée",
-    "role:caracteriseur": "caractériseur",
-    "role:sujet": "sujet",
-    "role:objet": "objet",
+    "role:generaliseur": "generalizer",
+    "role:specialiseur": "specializer",
+    "role:chose-caracterisee": "characterized thing",
+    "role:caracteriseur": "characterizer",
+    "role:sujet": "subject",
+    "role:objet": "object",
 }
 
 # Types de relation built-in : id -> {label, source(role id), target(role id)}
 RELATION_TYPES: dict[str, dict[str, str]] = {
     # Subsomption (sous-typage) entre types : ex. Animal —> Chien (source=généraliseur)
     "rt:subsomption": {
-        "label": "subsomption",
+        "label": "subsumption",
         "source": "role:generaliseur",
         "target": "role:specialiseur",
     },
     "rt:instanciation": {
-        "label": "instanciation",
-        "source": "role:instance",
-        "target": "role:type",
+        "label": "instantiation",
+        "source": "role:type",
+        "target": "role:instance",
     },
     # Caractérisation au niveau SCHÉMA (contrainte) : ex. Personne —> Nom
     "rt:caracterisation-type": {
-        "label": "type de caractérisation",
+        "label": "characterization type",
         "source": "role:chose-caracterisee",
         "target": "role:caracteriseur",
     },
     # Caractérisation au niveau INSTANCE (assertion) : ex. Bernard Chabot —> Chabot
     "rt:caracterisation": {
-        "label": "caractérisation",
+        "label": "characterization",
         "source": "role:chose-caracterisee",
         "target": "role:caracteriseur",
     },
     # Représentation au niveau SCHÉMA (sujet/objet typés)
     "rt:representation-type": {
-        "label": "type de représentation",
+        "label": "representation type",
         "source": "role:sujet",
         "target": "role:objet",
     },
     # Représentation au niveau INSTANCE
     "rt:representation": {
-        "label": "représentation",
+        "label": "representation",
         "source": "role:sujet",
         "target": "role:objet",
     },
@@ -86,3 +86,11 @@ def relation_types_public() -> list[dict]:
             "targetRole": ROLES[rdef["target"]],
         })
     return out
+
+
+def meta_model_public() -> dict:
+    """Vue complète du méta-modèle fondateur : relations + rôles."""
+    return {
+        "relations": relation_types_public(),
+        "roles": [{"id": rid, "label": label} for rid, label in ROLES.items()],
+    }
